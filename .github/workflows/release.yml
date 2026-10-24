@@ -1,0 +1,76 @@
+# A tag like v0.2.0 → build the desktop app as one universal (Apple silicon + Intel) Mac app, sign it with the
+# Developer ID certificate, notarize it, check that Gatekeeper accepts it, and publish a GitHub release with the .dmg.
+# Nothing unsigned is ever published: without the certificate and notarization secrets the release fails before building.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the tag to release, e.g. v0.2.0 (already pushed)
+        required: true
+        type: string
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Require signing and notarization configuration
+        env:
+          MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          for v in MAC_CERT_P12_BASE64 MAC_CERT_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [ -n "${!v}" ] || { echo "::error::$v is not set: Mac releases must be signed and notarized"; exit 1; }
+          done
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cargo test --workspace
+      - name: Version from the tag
+        run: |
+          v="${TAG#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::Invalid release tag: $TAG"; exit 1; }
+          node -e 'const f=process.argv[1], c=JSON.parse(require("fs").readFileSync(f)); c.version=process.argv[2]; require("fs").writeFileSync(f, JSON.stringify(c, null, 2)+"\n")' \
+            apps/hormuz-app/src-tauri/tauri.conf.json "$v"
+      - name: Build, sign, notarize
+        working-directory: apps/hormuz-app
+        env:
+          # Tauri imports the certificate into a temporary keychain, signs with the hardened runtime, notarizes and staples
+          APPLE_CERTIFICATE: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/notary.p8
+        run: |
+          npm install
+          npx tauri build --target universal-apple-darwin --bundles app,dmg
+      - name: Verify the app is signed, notarized and opens without a Gatekeeper warning
+        run: ./scripts/check-mac-signature.sh target/universal-apple-darwin/release/bundle/macos
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${TAG#v}"
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "Hormuz-$v-mac-universal.dmg"
+          gh release create "$TAG" "Hormuz-$v-mac-universal.dmg" --title "$v" --generate-notes --verify-tag
