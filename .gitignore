@@ -5,3 +5,4 @@ apps/hormuz-app/src-tauri/gen/
 *.db-wal
 *.db-shm
 .DS_Store
+.claude/

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Hormuz: the daily routine that reminds you until it's done</title>
+  <meta name="description" content="Hormuz holds the things you do every day, reminds you at the times you choose and keeps nudging until you tick them off. Desktop, CLI and phone. Free and open source.">
+  <meta property="og:title" content="Hormuz">
+  <meta property="og:description" content="The daily routine that keeps reminding you until it's done.">
+  <meta property="og:image" content="https://hormuz-labs.github.io/hormuz-todo/screenshot.jpg">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #f6f5f1;
+      --surface: #ffffff;
+      --text: #1c1b18;
+      --muted: #6d6a62;
+      --line: #e4e1d8;
+      --accent: #0f766e;
+      --accent-ink: #ffffff;
+      --accent-soft: #d6efe9;
+      --code-bg: #1c1b18;
+      --code-text: #edebe5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #141412;
+        --surface: #1e1d1a;
+        --text: #edebe5;
+        --muted: #9b978d;
+        --line: #2f2e2a;
+        --accent: #2dd4bf;
+        --accent-ink: #0b1f1c;
+        --accent-soft: #123b36;
+        --code-bg: #0c0c0b;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none; }
+    nav .links { display: flex; gap: 22px; font-size: 15px; }
+    nav .links a { color: var(--muted); text-decoration: none; }
+    nav .links a:hover { color: var(--text); }
+
+    .hero { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 56px; align-items: center; padding: 48px 0 72px; }
+    .eyebrow { display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 4px 12px; border-radius: 99px; margin-bottom: 18px; }
+    h1 { font-size: clamp(36px, 5.4vw, 58px); line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 20px; }
+    .lede { font-size: 19px; color: var(--muted); margin: 0 0 30px; max-width: 34em; }
+    .lede em { color: var(--text); font-style: normal; font-weight: 600; }
+    .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .btn { display: inline-flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; padding: 13px 22px; border-radius: 12px; text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--surface); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .btn:hover { filter: brightness(1.05); }
+    .fine { font-size: 13px; color: var(--muted); margin-top: 14px; }
+
+    .phone { justify-self: center; width: min(340px, 100%); border-radius: 44px; padding: 12px; background: #1c1b18; box-shadow: 0 30px 80px rgb(0 0 0 / 22%), 0 0 0 1px rgb(255 255 255 / 6%) inset; }
+    .phone img { display: block; width: 100%; height: auto; border-radius: 34px; }
+
+    section { padding: 64px 0; border-top: 1px solid var(--line); }
+    h2 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 10px; }
+    .sub { color: var(--muted); margin: 0 0 36px; font-size: 17px; max-width: 40em; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+    .card .ic { width: 38px; height: 38px; border-radius: 10px; background: var(--accent-soft); display: grid; place-items: center; font-size: 19px; margin-bottom: 14px; }
+    .card h3 { margin: 0 0 6px; font-size: 17px; }
+    .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+    .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; align-items: start; }
+    pre { margin: 0; background: var(--code-bg); color: var(--code-text); border-radius: 14px; padding: 20px 22px; overflow-x: auto; font: 14px/1.7 ui-monospace, "SF Mono", Menlo, monospace; }
+    pre .c { color: #8f8b81; }
+    ol { margin: 0; padding-left: 20px; color: var(--muted); }
+    ol li { margin-bottom: 14px; }
+    ol b { color: var(--text); }
+    code { font: 0.92em ui-monospace, "SF Mono", Menlo, monospace; background: var(--accent-soft); color: var(--text); padding: 1px 6px; border-radius: 6px; }
+
+    table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+    th, td { text-align: left; padding: 15px 18px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 15px; }
+    tr:last-child td { border-bottom: 0; }
+    th { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+    td:first-child { font-weight: 650; white-space: nowrap; }
+    td span { color: var(--muted); }
+
+    footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+    @media (max-width: 860px) {
+      .hero { grid-template-columns: 1fr; gap: 40px; padding-top: 24px; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      .steps { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      nav .links a:not(.gh) { display: none; }
+      .grid { grid-template-columns: 1fr; }
+      td:first-child { white-space: normal; }
+      th, td { padding: 12px 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="logo" href="#"><img src="icon.svg" width="30" height="30" alt="">Hormuz</a>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#cli">CLI</a>
+        <a href="#download">Download</a>
+        <a class="gh" href="https://github.com/hormuz-labs/hormuz-todo">GitHub</a>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div>
+        <span class="eyebrow">Free and open source</span>
+        <h1>The daily routine that reminds you until it's done.</h1>
+        <p class="lede">
+          Some things belong in every day: <em>check Product Hunt and upvote a few</em>, <em>add something useful on Reddit</em>,
+          <em>read Hacker News</em>. Hormuz holds that list, reminds you at the times you choose and keeps nudging until you tick it off.
+        </p>
+        <div class="cta">
+          <a class="btn primary" id="mac-dl" href="https://github.com/hormuz-labs/hormuz-todo/releases/latest">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-1.9-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.1 2.5-1.8 3.1-.5 7.6 1.3 10.1.8 1.2 1.8 2.6 3.1 2.5 1.2 0 1.7-.8 3.2-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.4-.9-2.4-3.3zM14 5.4c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4z"/></svg>
+            <span>Download for Mac</span>
+          </a>
+          <a class="btn" href="#cli">Install the CLI</a>
+        </div>
+        <p class="fine" id="mac-fine">Universal app for Apple silicon and Intel, signed and notarized by Apple.</p>
+      </div>
+      <div class="phone"><img src="screenshot.jpg" width="780" height="1520" alt="Hormuz showing today's checklist: Product Hunt done with a 9-day streak, then Reddit, Hacker News and planning tomorrow"></div>
+    </header>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Built for the things you keep meaning to do</h2>
+      <p class="sub">Not a to-do list that fills up and goes stale. A short routine that comes back every day.</p>
+      <div class="grid">
+        <div class="card"><div class="ic">🔁</div><h3>Routines, not to-dos</h3><p>Tasks repeat daily, on weekdays, at weekends or on the days you pick, each with one or more reminder times and a link to open.</p></div>
+        <div class="card"><div class="ic">🔔</div><h3>Nags until done</h3><p>Turn on "every N minutes until done" and the reminder keeps coming back. Snooze when you need to; tick it off and it stops.</p></div>
+        <div class="card"><div class="ic">🔥</div><h3>Streaks</h3><p>Every day you finish a task adds to its streak, so the routine actually sticks.</p></div>
+        <div class="card"><div class="ic">🌙</div><h3>Runs in the background</h3><p>A tiny daemon starts at login and sends native notifications, even with every window closed. Missed some? You get one summary, not a burst.</p></div>
+        <div class="card"><div class="ic">🖥️</div><h3>App, CLI and web</h3><p>A native desktop app, a <code>hormuz</code> command and a local web page, all reading the same file, so they always agree.</p></div>
+        <div class="card"><div class="ic">🔒</div><h3>Yours, locally</h3><p>No account and no cloud. Your list lives in one SQLite file on your machine, and the local API only answers your own computer.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="cli">
+    <div class="wrap steps">
+      <div>
+        <h2>Up and running in a minute</h2>
+        <p class="sub">The CLI and background daemon for macOS and Linux, built from source with Rust.</p>
+        <ol>
+          <li><b>Install</b> with Cargo. No Rust yet? Get it from <a href="https://rustup.rs">rustup.rs</a>.</li>
+          <li><b>Seed</b> a starter routine (Product Hunt and Reddit), then change it to fit your day.</li>
+          <li><b>Install the daemon</b> as a login service: launchd on macOS, systemd on Linux.</li>
+        </ol>
+      </div>
+      <pre><span class="c"># 1. install</span>
+cargo install --git https://github.com/hormuz-labs/hormuz-todo hormuz
+
+<span class="c"># 2. starter routine</span>
+hormuz seed
+
+<span class="c"># 3. reminders from now on, at every login</span>
+hormuz daemon install
+
+<span class="c"># today's checklist</span>
+hormuz
+hormuz done 1
+hormuz add "Read HN" --at 16:00 --days weekdays --nag 45</pre>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <h2>Get Hormuz</h2>
+      <p class="sub">One Rust core, one interface, every platform.</p>
+      <table>
+        <thead><tr><th>Platform</th><th>How</th></tr></thead>
+        <tbody>
+          <tr><td>macOS app</td><td><a id="mac-dl-2" href="https://github.com/hormuz-labs/hormuz-todo/releases/latest">Download the .dmg</a> <span>· universal, signed and notarized</span></td></tr>
+          <tr><td>CLI + daemon</td><td><a href="#cli"><code>cargo install</code></a> <span>· macOS and Linux</span></td></tr>
+          <tr><td>Windows and Linux app</td><td><a href="https://github.com/hormuz-labs/hormuz-todo#desktop-app">Build from source</a> <span>· Tauri 2</span></td></tr>
+          <tr><td>iOS and Android</td><td><a href="https://github.com/hormuz-labs/hormuz-todo#mobile-app">Build from source</a> <span>· reminders are scheduled as native notifications</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <footer>
+      <span>Made by <a href="https://github.com/hormuz-labs">Hormuz Labs</a></span>
+      <a href="https://github.com/hormuz-labs/hormuz-todo">Source on GitHub</a>
+    </footer>
+  </div>
+
+  <script>
+    // Point the download buttons straight at the latest signed .dmg.
+    fetch("https://api.github.com/repos/hormuz-labs/hormuz-todo/releases/latest")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rel) => {
+        const dmg = rel?.assets?.find((a) => a.name.endsWith(".dmg"));
+        if (!dmg) return;
+        for (const id of ["mac-dl", "mac-dl-2"]) document.getElementById(id).href = dmg.browser_download_url;
+        const mb = (dmg.size / 1048576).toFixed(1);
+        document.getElementById("mac-fine").textContent =
+          `Version ${rel.tag_name.replace(/^v/, "")} · ${mb} MB · universal for Apple silicon and Intel, signed and notarized by Apple.`;
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>
