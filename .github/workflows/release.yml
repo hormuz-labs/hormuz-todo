@@ -1,5 +1,6 @@
 # A tag like v0.2.0 → build the desktop app as one universal (Apple silicon + Intel) Mac app, sign it with the
-# Developer ID certificate, notarize it, check that Gatekeeper accepts it, and publish a GitHub release with the .dmg.
+# Developer ID certificate, notarize the app and the .dmg, check that Gatekeeper accepts both, and publish a GitHub
+# release with the .dmg. Running it by hand for a tag that already has a release replaces that release's .dmg.
 # Nothing unsigned is ever published: without the certificate and notarization secrets the release fails before building.
 name: Release
 on:
@@ -25,6 +26,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
+      - name: Use this workflow's own release scripts
+        # The tag may predate a fix to the checks; build the tag's code but check it with the current scripts.
+        run: |
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout "$GITHUB_SHA" -- scripts/
       - name: Require signing and notarization configuration
         env:
           MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
@@ -65,12 +71,29 @@ jobs:
         run: |
           npm install
           npx tauri build --target universal-apple-darwin --bundles app,dmg
-      - name: Verify the app is signed, notarized and opens without a Gatekeeper warning
-        run: ./scripts/check-mac-signature.sh target/universal-apple-darwin/release/bundle/macos
+      - name: Notarize and staple the .dmg
+        # Tauri notarizes the app inside; the disk image people download needs its own ticket.
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          v="${TAG#v}"
+          mkdir -p dist
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "dist/Hormuz-$v-mac-universal.dmg"
+          xcrun notarytool submit "dist/Hormuz-$v-mac-universal.dmg" --wait --timeout 30m \
+            --key "$RUNNER_TEMP/notary.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" \
+            --output-format json | tee notary.json
+          [ "$(plutil -extract status raw notary.json)" = Accepted ] || { echo "::error::Apple did not accept the .dmg"; exit 1; }
+          xcrun stapler staple "dist/Hormuz-$v-mac-universal.dmg"
+      - name: Verify the app and .dmg are signed, notarized and open without a Gatekeeper warning
+        run: ./scripts/check-mac-signature.sh target/universal-apple-darwin/release/bundle/macos dist
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           v="${TAG#v}"
-          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg "Hormuz-$v-mac-universal.dmg"
-          gh release create "$TAG" "Hormuz-$v-mac-universal.dmg" --title "$v" --generate-notes --verify-tag
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "dist/Hormuz-$v-mac-universal.dmg" --clobber
+          else
+            gh release create "$TAG" "dist/Hormuz-$v-mac-universal.dmg" --title "$v" --generate-notes --verify-tag
+          fi
