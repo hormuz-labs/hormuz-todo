@@ -1,9 +1,11 @@
 #!/bin/sh
 # Fails unless every packaged Hormuz.app in <dir> is Developer ID signed (bundled tools included), notarized with
 # the ticket stapled, and accepted by Gatekeeper, i.e. a downloaded copy opens without "can't be opened" or "damaged".
-#   scripts/check-mac-signature.sh target/universal-apple-darwin/release/bundle/macos
+# With a second folder, every .dmg in it must pass the same signature, notarization and Gatekeeper checks.
+#   scripts/check-mac-signature.sh target/universal-apple-darwin/release/bundle/macos dist
 set -eu
-dist=${1:?usage: check-mac-signature.sh <folder with Hormuz.app>}
+dist=${1:?usage: check-mac-signature.sh <folder with Hormuz.app> [folder with .dmg files]}
+dmgs=${2:-}
 found=0
 for app in "$dist"/Hormuz.app; do
   [ -d "$app" ] || continue
@@ -23,3 +25,16 @@ for app in "$dist"/Hormuz.app; do
   spctl --assess --type execute --verbose=2 "$app" 2>&1 | tee /dev/stderr | grep -q 'source=Notarized Developer ID' || { echo "Gatekeeper does not accept it as notarized"; exit 1; }
 done
 [ "$found" = 1 ] || { echo "no Hormuz.app under $dist"; exit 1; }
+
+[ -n "$dmgs" ] || exit 0
+found=0
+for dmg in "$dmgs"/*.dmg; do
+  [ -f "$dmg" ] || continue
+  found=1
+  echo "== $dmg"
+  codesign --verify --strict --verbose=2 "$dmg"
+  codesign -dvv "$dmg" 2>&1 | grep -q '^Authority=Developer ID Application:' || { echo "not signed with a Developer ID Application certificate"; exit 1; }
+  xcrun stapler validate "$dmg"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg" 2>&1 | tee /dev/stderr | grep -q 'source=Notarized Developer ID' || { echo "Gatekeeper does not accept the .dmg as notarized"; exit 1; }
+done
+[ "$found" = 1 ] || { echo "no .dmg under $dmgs"; exit 1; }
