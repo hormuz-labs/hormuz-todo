@@ -1,0 +1,14 @@
+[package]
+name = "hormuz"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+chrono = "0.4.45"
+clap = { version = "4.6.7", features = ["derive"] }
+hormuz-core = { version = "0.1.0", path = "../hormuz-core" }
+notify-rust = "4.18.2"
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "signal"] }

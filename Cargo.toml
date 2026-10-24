@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["crates/hormuz-core", "crates/hormuz", "apps/hormuz-app/src-tauri"]
+
+[profile.release]
+strip = true
+lto = "thin"

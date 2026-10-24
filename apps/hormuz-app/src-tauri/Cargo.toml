@@ -1,0 +1,25 @@
+[package]
+name = "hormuz-app"
+version = "0.1.0"
+edition = "2024"
+description = "Hormuz daily routine reminders (desktop + mobile)"
+
+[lib]
+name = "hormuz_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "hormuz-app"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+hormuz-core = { version = "0.1.0", path = "../../../crates/hormuz-core" }
+serde_json = "1.0.154"
+tauri = "2.12.5"
+tauri-plugin-notification = "2.7.0"
+tauri-plugin-opener = "2.7.2"
+
+[build-dependencies]
+tauri-build = "2.7.4"

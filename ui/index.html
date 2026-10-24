@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Hormuz</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="28" height="28">
+      <div>
+        <h1>Hormuz</h1>
+        <p id="date" class="muted"></p>
+      </div>
+    </div>
+    <div class="progress" id="progress" aria-label="Progress">
+      <svg viewBox="0 0 36 36" aria-hidden="true">
+        <circle class="track" cx="18" cy="18" r="15.5"></circle>
+        <circle class="bar" id="ring" cx="18" cy="18" r="15.5" pathLength="100"></circle>
+      </svg>
+      <span id="count">0/0</span>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="today" aria-selected="true">Today</button>
+    <button role="tab" data-view="tasks" aria-selected="false">Routine</button>
+  </nav>
+
+  <main>
+    <section id="view-today" class="view">
+      <ul id="agenda" class="list"></ul>
+      <div id="empty-today" class="empty" hidden>
+        <p>Nothing scheduled today.</p>
+        <button class="btn primary" data-action="seed">Add starter routine</button>
+      </div>
+    </section>
+
+    <section id="view-tasks" class="view" hidden>
+      <ul id="tasks" class="list"></ul>
+      <div id="empty-tasks" class="empty" hidden>
+        <p>No tasks yet.</p>
+        <button class="btn" data-action="seed">Add Product Hunt + Reddit routine</button>
+      </div>
+    </section>
+  </main>
+
+  <button class="fab" id="add" aria-label="Add task">+</button>
+
+  <footer class="status muted" id="status"></footer>
+
+  <dialog id="editor">
+    <form method="dialog" id="form">
+      <h2 id="form-title">New task</h2>
+      <label>Title
+        <input name="title" required maxlength="200" placeholder="Check Product Hunt, upvote a few">
+      </label>
+      <label><span>Link <span class="muted">(optional)</span></span>
+        <input name="url" type="url" placeholder="https://www.producthunt.com">
+      </label>
+      <label><span>Notes <span class="muted">(optional)</span></span>
+        <textarea name="notes" rows="2" placeholder="What does done look like?"></textarea>
+      </label>
+      <fieldset>
+        <legend>Remind me at</legend>
+        <div id="times" class="times"></div>
+        <button type="button" class="btn small" id="add-time">+ another time</button>
+      </fieldset>
+      <fieldset>
+        <legend>On</legend>
+        <div class="days" id="days"></div>
+      </fieldset>
+      <label>Keep reminding until done
+        <select name="nag">
+          <option value="">No, remind once</option>
+          <option value="15">Every 15 min</option>
+          <option value="30">Every 30 min</option>
+          <option value="60">Every hour</option>
+          <option value="90">Every 90 min</option>
+          <option value="120">Every 2 hours</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="enabled" checked> Reminders on</label>
+      <p class="error" id="form-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn danger" id="delete" hidden>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
