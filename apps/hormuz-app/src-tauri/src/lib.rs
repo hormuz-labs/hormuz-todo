@@ -3,7 +3,9 @@
 //! The UI in `/ui` talks to `rpc`, which runs the same command set as the daemon.
 //! Desktop shares the daemon's database, so ticking a task here or in the CLI is the same thing.
 //! Reminders:
-//! - desktop: the daemon sends them; if it isn't running, this app sends them while it's open.
+//! - desktop: the daemon sends them; if it isn't running, this app sends them while it's running.
+//!   Closing the window only hides it: the app stays in the menu bar, showing today's progress,
+//!   until you choose Quit.
 //! - mobile: phones don't allow long-running daemons, so each reminder time is handed to the OS
 //!   as a repeating local notification and rescheduled whenever tasks change.
 
@@ -44,12 +46,31 @@ pub fn run() {
             }
             let store = Arc::new(Mutex::new(store));
             app.manage(AppState { store: store.clone() });
+            #[cfg(desktop)]
+            tray::setup(app.handle(), store.clone())?;
             start_reminders(app.handle(), store);
             Ok(())
         })
+        .on_window_event(|window, event| {
+            // Keep running in the menu bar instead of quitting when the window is closed.
+            #[cfg(desktop)]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            #[cfg(mobile)]
+            let _ = (window, event);
+        })
         .invoke_handler(tauri::generate_handler![rpc])
-        .run(tauri::generate_context!())
-        .expect("error while running Hormuz");
+        .build(tauri::generate_context!())
+        .expect("error while building Hormuz")
+        .run(|_app, _event| {
+            // Clicking the Dock icon brings the hidden window back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                tray::show_main(_app);
+            }
+        });
 }
 
 #[cfg(desktop)]
@@ -80,7 +101,105 @@ fn host_info() -> Value {
 }
 
 #[cfg(desktop)]
-fn on_tasks_changed(_app: &AppHandle, _store: &Arc<Mutex<Store>>) {}
+fn on_tasks_changed(app: &AppHandle, store: &Arc<Mutex<Store>>) {
+    tray::refresh(app, store);
+}
+
+/// The menu bar icon: today's progress as its title, and a menu with status, Open and Quit.
+#[cfg(desktop)]
+mod tray {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use chrono::Local;
+    use hormuz_core::Store;
+    use tauri::image::Image;
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::{AppHandle, Manager, Wry};
+
+    const ID: &str = "main";
+
+    struct Items {
+        today: MenuItem<Wry>,
+        reminders: MenuItem<Wry>,
+    }
+
+    pub fn setup(app: &AppHandle, store: Arc<Mutex<Store>>) -> tauri::Result<()> {
+        let today = MenuItem::with_id(app, "today", "Today", false, None::<&str>)?;
+        let reminders = MenuItem::with_id(app, "reminders", "Reminders", false, None::<&str>)?;
+        let open = MenuItem::with_id(app, "open", "Open Hormuz", true, None::<&str>)?;
+        let quit = MenuItem::with_id(app, "quit", "Quit Hormuz", true, None::<&str>)?;
+        let sep = PredefinedMenuItem::separator(app)?;
+        let menu = Menu::with_items(app, &[&today, &reminders, &sep, &open, &quit])?;
+
+        TrayIconBuilder::with_id(ID)
+            .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
+            .icon_as_template(true)
+            .tooltip("Hormuz")
+            .menu(&menu)
+            .show_menu_on_left_click(cfg!(target_os = "macos"))
+            .on_menu_event(|app, event| match event.id.as_ref() {
+                "open" => show_main(app),
+                "quit" => app.exit(0),
+                _ => {}
+            })
+            .on_tray_icon_event(|tray, event| {
+                // Windows and Linux: left click opens the window, right click shows the menu.
+                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event
+                    && !cfg!(target_os = "macos")
+                {
+                    show_main(tray.app_handle());
+                }
+            })
+            .build(app)?;
+
+        app.manage(Items { today, reminders });
+        refresh(app, &store);
+
+        // Keep the title current as the day goes on and as the CLI or daemon change things.
+        let app = app.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(20));
+                refresh(&app, &store);
+            }
+        });
+        Ok(())
+    }
+
+    pub fn refresh(app: &AppHandle, store: &Arc<Mutex<Store>>) {
+        let now = Local::now();
+        let Ok(agenda) = store.lock().unwrap().agenda(now.date_naive(), now) else { return };
+        let left = agenda.total - agenda.done;
+        let (title, today) = match (agenda.total, left) {
+            (0, _) => (None, "Nothing scheduled today".to_string()),
+            (t, 0) => (Some(format!("{t}/{t}")), format!("All {t} done today")),
+            (t, l) => (Some(format!("{}/{t}", agenda.done)), format!("{l} of {t} left today")),
+        };
+        let reminders = if super::daemon_running() {
+            "Reminders: on, even when Hormuz is quit"
+        } else {
+            "Reminders: only while Hormuz is running"
+        };
+        if let Some(tray) = app.tray_by_id(ID) {
+            let _ = tray.set_title(title.as_deref());
+            let _ = tray.set_tooltip(Some(format!("Hormuz · {today}")));
+        }
+        if let Some(items) = app.try_state::<Items>() {
+            let _ = items.today.set_text(today);
+            let _ = items.reminders.set_text(reminders);
+        }
+    }
+
+    pub fn show_main(app: &AppHandle) {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+}
 
 /// Fallback reminder loop for when the daemon isn't installed: runs while the app is open
 /// and stays quiet whenever the daemon is up, so nothing is sent twice.

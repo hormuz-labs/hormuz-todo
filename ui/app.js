@@ -266,8 +266,8 @@ async function showStatus() {
   $("#status").textContent = info.mobile
     ? "Reminders are scheduled on this device."
     : info.daemon
-      ? "Background daemon is running: reminders arrive even with this window closed."
-      : "Reminders only fire while this window is open. Run `hormuz daemon install` to keep them going in the background.";
+      ? "Background daemon is running: reminders arrive even after you quit Hormuz."
+      : "Reminders only fire while Hormuz is running (closing the window keeps it in the menu bar). Run `hormuz daemon install` to get them even after you quit.";
 }
 
 guard(refresh);
