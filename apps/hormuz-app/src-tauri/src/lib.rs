@@ -105,45 +105,39 @@ fn on_tasks_changed(app: &AppHandle, store: &Arc<Mutex<Store>>) {
     tray::refresh(app, store);
 }
 
-/// The menu bar icon: today's progress as its title, and a menu with status, Open and Quit.
+/// The menu bar icon: today's progress as its title, and today's tasks right in its menu, ticked off
+/// with one click, plus links to open, whether reminders survive quitting, Open and Quit.
 #[cfg(desktop)]
 mod tray {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use chrono::Local;
-    use hormuz_core::Store;
+    use hormuz_core::{Agenda, Store};
     use tauri::image::Image;
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-    use tauri::{AppHandle, Manager, Wry};
+    use tauri::{AppHandle, Emitter, Manager, Wry};
+    use tauri_plugin_opener::OpenerExt;
 
     const ID: &str = "main";
+    /// Longest task title shown in the menu before it's cut with an ellipsis.
+    const MAX_LABEL: usize = 52;
 
-    struct Items {
-        today: MenuItem<Wry>,
-        reminders: MenuItem<Wry>,
-    }
+    /// What the menu was last built from; it's only rebuilt when this changes, so an open menu
+    /// isn't swapped out from under the pointer by the periodic refresh.
+    #[derive(Default)]
+    struct Shown(Mutex<String>);
 
     pub fn setup(app: &AppHandle, store: Arc<Mutex<Store>>) -> tauri::Result<()> {
-        let today = MenuItem::with_id(app, "today", "Today", false, None::<&str>)?;
-        let reminders = MenuItem::with_id(app, "reminders", "Reminders", false, None::<&str>)?;
-        let open = MenuItem::with_id(app, "open", "Open Hormuz", true, None::<&str>)?;
-        let quit = MenuItem::with_id(app, "quit", "Quit Hormuz", true, None::<&str>)?;
-        let sep = PredefinedMenuItem::separator(app)?;
-        let menu = Menu::with_items(app, &[&today, &reminders, &sep, &open, &quit])?;
-
+        app.manage(Shown::default());
         TrayIconBuilder::with_id(ID)
             .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
             .icon_as_template(true)
             .tooltip("Hormuz")
-            .menu(&menu)
+            .menu(&Menu::new(app)?)
             .show_menu_on_left_click(cfg!(target_os = "macos"))
-            .on_menu_event(|app, event| match event.id.as_ref() {
-                "open" => show_main(app),
-                "quit" => app.exit(0),
-                _ => {}
-            })
+            .on_menu_event(|app, event| on_menu(app, event.id.as_ref()))
             .on_tray_icon_event(|tray, event| {
                 // Windows and Linux: left click opens the window, right click shows the menu.
                 if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event
@@ -153,11 +147,9 @@ mod tray {
                 }
             })
             .build(app)?;
-
-        app.manage(Items { today, reminders });
         refresh(app, &store);
 
-        // Keep the title current as the day goes on and as the CLI or daemon change things.
+        // Keep the title and list current as the day goes on and as the CLI or daemon change things.
         let app = app.clone();
         std::thread::spawn(move || {
             loop {
@@ -168,28 +160,121 @@ mod tray {
         Ok(())
     }
 
+    fn on_menu(app: &AppHandle, id: &str) {
+        let store = app.state::<super::AppState>().store.clone();
+        if let Some(task) = id.strip_prefix("task:").and_then(|n| n.parse::<i64>().ok()) {
+            let today = Local::now().date_naive();
+            {
+                let s = store.lock().unwrap();
+                let done = s.done_on(today).map(|d| d.contains(&task)).unwrap_or(false);
+                if let Err(e) = s.set_done(task, today, !done) {
+                    eprintln!("hormuz: ticking task {task} failed: {e:#}");
+                }
+            }
+            refresh(app, &store);
+            // Let an open window redraw straight away instead of on its next poll.
+            let _ = app.emit("tasks-changed", ());
+        } else if let Some(task) = id.strip_prefix("link:").and_then(|n| n.parse::<i64>().ok()) {
+            let url = store.lock().unwrap().get_task(task).ok().and_then(|t| t.url);
+            if let Some(url) = url {
+                let _ = app.opener().open_url(url, None::<&str>);
+            }
+        } else if id == "open" {
+            show_main(app);
+        } else if id == "quit" {
+            app.exit(0);
+        }
+    }
+
     pub fn refresh(app: &AppHandle, store: &Arc<Mutex<Store>>) {
         let now = Local::now();
         let Ok(agenda) = store.lock().unwrap().agenda(now.date_naive(), now) else { return };
+        let daemon = super::daemon_running();
+
         let left = agenda.total - agenda.done;
-        let (title, today) = match (agenda.total, left) {
-            (0, _) => (None, "Nothing scheduled today".to_string()),
-            (t, 0) => (Some(format!("{t}/{t}")), format!("All {t} done today")),
-            (t, l) => (Some(format!("{}/{t}", agenda.done)), format!("{l} of {t} left today")),
+        let title = (agenda.total > 0).then(|| format!("{}/{}", agenda.done, agenda.total));
+        let summary = match (agenda.total, left) {
+            (0, _) => "Nothing scheduled today".to_string(),
+            (t, 0) => format!("All {t} done today"),
+            (t, l) => format!("{l} of {t} left today"),
         };
-        let reminders = if super::daemon_running() {
-            "Reminders: on, even when Hormuz is quit"
+        let Some(tray) = app.tray_by_id(ID) else { return };
+        let _ = tray.set_title(title.as_deref());
+        let _ = tray.set_tooltip(Some(format!("Hormuz · {summary}")));
+
+        let key = format!(
+            "{}|{daemon}|{}",
+            agenda.date,
+            agenda
+                .items
+                .iter()
+                .map(|i| format!("{}:{}:{}:{}:{}", i.task.id, i.done, i.overdue, i.task.title, i.task.url.is_some()))
+                .collect::<Vec<_>>()
+                .join(";")
+        );
+        let shown = app.state::<Shown>();
+        let mut last = shown.0.lock().unwrap();
+        if *last == key {
+            return;
+        }
+        match build_menu(app, &agenda, &summary, daemon) {
+            Ok(menu) => {
+                let _ = tray.set_menu(Some(menu));
+                *last = key;
+            }
+            Err(e) => eprintln!("hormuz: building the menu bar menu failed: {e}"),
+        }
+    }
+
+    fn build_menu(app: &AppHandle, agenda: &Agenda, summary: &str, daemon: bool) -> tauri::Result<Menu<Wry>> {
+        let menu = Menu::new(app)?;
+        menu.append(&MenuItem::with_id(app, "summary", summary, false, None::<&str>)?)?;
+        for item in &agenda.items {
+            let time = item.task.first_time().map(hormuz_core::model::fmt_hm).unwrap_or_default();
+            let due = if item.overdue { "  · overdue" } else { "" };
+            let label = format!("{time}   {}{due}", clip(&item.task.title));
+            menu.append(&CheckMenuItem::with_id(app, format!("task:{}", item.task.id), label, true, item.done, None::<&str>)?)?;
+        }
+
+        let links: Vec<_> = agenda.items.iter().filter(|i| i.task.url.is_some()).collect();
+        if !links.is_empty() {
+            menu.append(&PredefinedMenuItem::separator(app)?)?;
+            let sub = Submenu::with_id(app, "links", "Open link", true)?;
+            for item in links {
+                let host = item.task.url.as_deref().map(host).unwrap_or_default();
+                sub.append(&MenuItem::with_id(
+                    app,
+                    format!("link:{}", item.task.id),
+                    format!("{}  ({host})", clip(&item.task.title)),
+                    true,
+                    None::<&str>,
+                )?)?;
+            }
+            menu.append(&sub)?;
+        }
+
+        let reminders =
+            if daemon { "Reminders keep coming after you quit" } else { "Reminders stop if you quit Hormuz" };
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+        menu.append(&MenuItem::with_id(app, "reminders", reminders, false, None::<&str>)?)?;
+        menu.append(&MenuItem::with_id(app, "open", "Open Hormuz…", true, None::<&str>)?)?;
+        menu.append(&MenuItem::with_id(app, "quit", "Quit Hormuz", true, None::<&str>)?)?;
+        Ok(menu)
+    }
+
+    fn clip(s: &str) -> String {
+        if s.chars().count() <= MAX_LABEL {
+            s.to_string()
         } else {
-            "Reminders: only while Hormuz is running"
-        };
-        if let Some(tray) = app.tray_by_id(ID) {
-            let _ = tray.set_title(title.as_deref());
-            let _ = tray.set_tooltip(Some(format!("Hormuz · {today}")));
+            format!("{}…", s.chars().take(MAX_LABEL - 1).collect::<String>().trim_end())
         }
-        if let Some(items) = app.try_state::<Items>() {
-            let _ = items.today.set_text(today);
-            let _ = items.reminders.set_text(reminders);
-        }
+    }
+
+    /// "https://www.producthunt.com/posts" -> "producthunt.com"
+    fn host(url: &str) -> String {
+        let rest = url.split_once("://").map_or(url, |(_, r)| r);
+        let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+        host.strip_prefix("www.").unwrap_or(host).to_string()
     }
 
     pub fn show_main(app: &AppHandle) {

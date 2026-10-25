@@ -274,3 +274,5 @@ guard(refresh);
 showStatus();
 setInterval(() => guard(refresh), 30_000);
 document.addEventListener("visibilitychange", () => !document.hidden && guard(refresh));
+// Ticking a task in the menu bar menu redraws the window straight away.
+tauri?.event?.listen("tasks-changed", () => guard(refresh));
